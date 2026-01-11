@@ -35,8 +35,11 @@ class License_Shipper_Activator {
 	    self::ls_create_download_links_table();
 	    self::ls_create_activation_guides_table();
 
+
+
 	    // Redirect to settings on first activation
 	    update_option('lship_do_activation_redirect', true);
+
 
 	    /* =========================
 	       General
@@ -188,6 +191,7 @@ class License_Shipper_Activator {
 	    dbDelta($sql);
 	}
 
+	
 
 
 

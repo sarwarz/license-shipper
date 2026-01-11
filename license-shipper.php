@@ -1,12 +1,6 @@
 <?php
-
 /**
  * The plugin bootstrap file
- *
- * This file is read by WordPress to generate the plugin information in the plugin
- * admin area. This file also includes all of the dependencies used by the plugin,
- * registers the activation and deactivation functions, and defines a function
- * that starts the plugin.
  *
  * @link              https://licenseshipper.com
  * @since             1.0.0
@@ -14,9 +8,9 @@
  *
  * @wordpress-plugin
  * Plugin Name:       License Shipper
- * Plugin URI:        https://licenseshipper.com/plugin
- * Description:       Automatically deliver license keys for digital products via your LicenseShipper account.
- * Version:           1.0.1
+ * Plugin URI:        https://github.com/sarwarz/license-shipper
+ * Description:       Automatically deliver license keys for digital products via your LicenseShipper App.
+ * Version:           1.0.2
  * Author:            License Shipper
  * Author URI:        https://licenseshipper.com/
  * License:           GPL-2.0+
@@ -26,56 +20,73 @@
  * Requires Plugins:  woocommerce
  */
 
-// If this file is called directly, abort.
 if ( ! defined( 'WPINC' ) ) {
 	die;
 }
 
 /**
- * Currently plugin version.
- * Start at version 1.0.0 and use SemVer - https://semver.org
- * Rename this for your plugin and update it as you release new versions.
+ * Plugin version (must match header)
  */
-define( 'LICENSE_SHIPPER_VERSION', '1.0.1' );
-
-
+define( 'LICENSE_SHIPPER_VERSION', '1.0.2' );
 
 /**
- * Load Plugin Update Checker
+ * ----------------------------------------------------
+ * LOAD THIRD-PARTY LIBRARIES (NO COMPOSER)
+ * ----------------------------------------------------
  */
-require_once plugin_dir_path( __FILE__ ) . 'libs/plugin-update-checker/plugin-update-checker.php';
-require_once plugin_dir_path( __FILE__ ) . 'libs/dompdf/autoload.inc.php';
+
+/**
+ * Plugin Update Checker (GitHub Releases)
+ */
+$ls_updater_file = plugin_dir_path( __FILE__ ) . 'libs/plugin-update-checker/plugin-update-checker.php';
+if ( file_exists( $ls_updater_file ) ) {
+	require_once $ls_updater_file;
+}
+
+/**
+ * Dompdf (v0.8.x – non-Composer)
+ */
+$ls_dompdf_loader = plugin_dir_path( __FILE__ ) . 'libs/dompdf/autoload.inc.php';
+if ( file_exists( $ls_dompdf_loader ) ) {
+	require_once $ls_dompdf_loader;
+}
+
+/**
+ * Namespaces
+ */
 use YahnisElsts\PluginUpdateChecker\v5\PucFactory;
 use Dompdf\Dompdf;
 
 /**
- * GitHub Plugin Update Checker
+ * ----------------------------------------------------
+ * GITHUB PLUGIN UPDATE CHECKER
+ * ----------------------------------------------------
+ *
+ * Updates are delivered via GitHub Releases.
+ * ZIP must be uploaded manually in each release.
  */
 if ( class_exists( '\YahnisElsts\PluginUpdateChecker\v5\PucFactory' ) ) {
 
-	$ls_update_checker = \YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
+	$ls_update_checker = PucFactory::buildUpdateChecker(
 		'https://github.com/sarwarz/license-shipper',
 		__FILE__,
 		'license-shipper'
 	);
 
+	// Use GitHub Release assets (recommended)
 	$ls_update_checker->getVcsApi()->enableReleaseAssets();
 }
 
-
 /**
- * The code that runs during plugin activation.
- * This action is documented in includes/class-license-shipper-activator.php
+ * ----------------------------------------------------
+ * ACTIVATION / DEACTIVATION
+ * ----------------------------------------------------
  */
 function activate_license_shipper() {
 	require_once plugin_dir_path( __FILE__ ) . 'includes/class-license-shipper-activator.php';
 	License_Shipper_Activator::activate();
 }
 
-/**
- * The code that runs during plugin deactivation.
- * This action is documented in includes/class-license-shipper-deactivator.php
- */
 function deactivate_license_shipper() {
 	require_once plugin_dir_path( __FILE__ ) . 'includes/class-license-shipper-deactivator.php';
 	License_Shipper_Deactivator::deactivate();
@@ -85,26 +96,20 @@ register_activation_hook( __FILE__, 'activate_license_shipper' );
 register_deactivation_hook( __FILE__, 'deactivate_license_shipper' );
 
 /**
- * The core plugin class that is used to define internationalization,
- * admin-specific hooks, and public-facing site hooks.
+ * ----------------------------------------------------
+ * CORE PLUGIN CLASS
+ * ----------------------------------------------------
  */
-require plugin_dir_path( __FILE__ ) . 'includes/class-license-shipper.php';
-
-
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-license-shipper.php';
 
 /**
- * Begins execution of the plugin.
- *
- * Since everything within the plugin is registered via hooks,
- * then kicking off the plugin from this point in the file does
- * not affect the page life cycle.
- *
- * @since    1.0.0
+ * ----------------------------------------------------
+ * RUN PLUGIN
+ * ----------------------------------------------------
  */
 function run_license_shipper() {
-
 	$plugin = new License_Shipper();
 	$plugin->run();
-
 }
+
 run_license_shipper();
