@@ -592,5 +592,18 @@ a.ls-btn-guide:active, button.ls-btn-guide:active{
   }
 }
 
+.ls-status {
+    display: inline-block;
+    padding: 4px 10px;
+    font-size: 12px;
+    border-radius: 14px;
+    font-weight: 600;
+}
+
+.ls-unmanaged {
+    background: #f1f1f1;
+    color: #666;
+}
+
 
 

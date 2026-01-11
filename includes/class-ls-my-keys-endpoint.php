@@ -212,6 +212,17 @@ class LS_My_Keys_Endpoint {
 
     protected static function render_actions($r) {
 
+         //  Gate by order meta
+        if ( ! self::is_order_license_ready( (int) $r['order_id'] ) ) {
+            echo '<span class="ls-status ls-unmanaged" title="' .
+                 esc_attr__( 'This order was completed by another system. License Shipper did not process this order, so licenses cannot be delivered.', 'license-shipper' ) .
+                 '">' .
+                 esc_html__( 'Undeliverable', 'license-shipper' ) .
+                 '</span>';
+            return;
+        }
+
+
         $attrs = sprintf(
           ' data-product-name="%s" data-order-id="%d" data-product-id="%d" data-qty="%d" data-email="%s" ',
           esc_attr( (string) $r['product_name'] ),
@@ -562,6 +573,21 @@ class LS_My_Keys_Endpoint {
 
         wp_send_json_success($payload);
     }
+
+
+    /**
+     * Check if license actions are allowed for an order
+     */
+    protected static function is_order_license_ready( int $order_id ): bool {
+        $order = wc_get_order( $order_id );
+        if ( ! $order ) {
+            return false;
+        }
+
+        // Cached WC meta read (HPOS safe)
+        return $order->get_meta( '_ls_completed_license_shipper', true ) === 'yes';
+    }
+
 
 
     

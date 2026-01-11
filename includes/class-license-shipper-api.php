@@ -21,6 +21,16 @@ class License_Shipper_Api {
      * Fetch licenses from external API
      */
     public static function fetch_license($params = []) {
+
+        //  Order completion gate
+        if ( ! empty( $params['order_id'] ) ) {
+            $allowed = static::can_fetch_license_for_order( (int) $params['order_id'] );
+
+            if ( $allowed !== true ) {
+                return $allowed; // structured error
+            }
+        }
+
         $api_url = trailingslashit(static::get_api_base_url()) . 'license/fetch';
         $api_key = static::get_api_key();
 
@@ -379,6 +389,51 @@ class License_Shipper_Api {
             'http_code' => $result['http_code'] ?? 200,
         ];
     }
+
+
+    /**
+     * Check whether order is allowed to fetch licenses
+     *
+     * @param int $order_id
+     * @return true|array  true if allowed, error array otherwise
+     */
+    protected static function can_fetch_license_for_order( $order_id ) {
+
+        if ( empty( $order_id ) ) {
+            return [
+                'success'   => false,
+                'message'   => __( 'Invalid order ID.', 'license-shipper' ),
+                'http_code' => 400,
+            ];
+        }
+
+        $order = wc_get_order( $order_id );
+
+        if ( ! $order ) {
+            return [
+                'success'   => false,
+                'message'   => __( 'Order not found.', 'license-shipper' ),
+                'http_code' => 404,
+            ];
+        }
+
+        // FAST cached meta read
+        $completed = $order->get_meta( '_ls_completed_license_shipper', true );
+
+        if ( $completed !== 'yes' ) {
+            return [
+                'success'   => false,
+                'message'   => __( 'License is not ready yet for this order.', 'license-shipper' ),
+                'meta'      => [
+                    'reason' => 'order_not_completed_by_ls_delivery_system',
+                ],
+                'http_code' => 403,
+            ];
+        }
+
+        return true;
+    }
+
 
 
 
