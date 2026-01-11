@@ -38,6 +38,30 @@ if ( ! defined( 'WPINC' ) ) {
  */
 define( 'LICENSE_SHIPPER_VERSION', '1.0.1' );
 
+
+
+/**
+ * Load Composer autoloader
+ */
+if ( file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
+	require_once __DIR__ . '/vendor/autoload.php';
+}
+
+/**
+ * GitHub Plugin Update Checker
+ */
+if ( class_exists( '\YahnisElsts\PluginUpdateChecker\v5\PucFactory' ) ) {
+
+	$ls_update_checker = \YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
+		'https://github.com/sarwarz/license-shipper',
+		__FILE__,
+		'license-shipper'
+	);
+
+	$ls_update_checker->getVcsApi()->enableReleaseAssets();
+}
+
+
 /**
  * The code that runs during plugin activation.
  * This action is documented in includes/class-license-shipper-activator.php
@@ -66,22 +90,6 @@ register_deactivation_hook( __FILE__, 'deactivate_license_shipper' );
 require plugin_dir_path( __FILE__ ) . 'includes/class-license-shipper.php';
 
 
-/**
- * ----------------------------------------------------
- * GITHUB PLUGIN UPDATE CHECKER
- * ----------------------------------------------------
- */
-if ( class_exists( '\YahnisElsts\PluginUpdateChecker\v5\PucFactory' ) ) {
-
-	$ls_update_checker = \YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
-		'https://github.com/sarwarz/license-shipper', 
-		__FILE__,
-		'license-shipper'
-	);
-
-	// Use GitHub Releases ZIP (recommended)
-	$ls_update_checker->getVcsApi()->enableReleaseAssets();
-}
 
 /**
  * Begins execution of the plugin.
