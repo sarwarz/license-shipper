@@ -1,0 +1,789 @@
+<?php
+defined( 'ABSPATH' ) || exit();
+
+/**
+ * Ls_License_Shipper_Admin_Action Class
+ */
+class Ls_License_Shipper_Admin_Action{
+
+	
+	public static function init(){
+
+		 add_action( 'admin_post_ls_save_settings', array( __CLASS__ , 'ls_save_settings') );
+		 add_action( 'wp_ajax_ls_ping_api', array( __CLASS__ , 'ls_ping_api') );
+		 add_action( 'wp_ajax_ls_send_test_email', array( __CLASS__ , 'ls_send_test_email_callback') );
+		 add_action( 'wp_ajax_ls_get_download_links', array( __CLASS__ , 'ls_get_download_links') );
+		 add_action( 'wp_ajax_ls_get_single_download_link', array( __CLASS__ , 'ls_get_single_download_link') );
+		 add_action( 'wp_ajax_ls_save_download_link', array( __CLASS__ , 'ls_save_download_link') );
+		 add_action( 'wp_ajax_ls_delete_download_link', array( __CLASS__ , 'ls_delete_download_link') );
+		 add_action( 'wp_ajax_ls_get_activation_guides', array( __CLASS__ , 'ls_get_activation_guides') );
+		 add_action( 'wp_ajax_ls_save_activation_guide', array( __CLASS__ , 'ls_save_activation_guide') );
+		 add_action( 'wp_ajax_ls_get_single_activation_guide', array( __CLASS__ , 'ls_get_single_activation_guide') );
+		 add_action( 'wp_ajax_ls_delete_activation_guide', array( __CLASS__ , 'ls_delete_activation_guide') );
+
+	}
+
+
+	public static function ls_save_settings(){
+
+		if (!current_user_can('manage_options')) {
+	        LS_Admin_Notice::error(__('You do not have permission to perform this action.', 'license-sender'));
+	        wp_redirect(wp_get_referer());
+	        exit;
+	    }
+
+	    if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'ls_save_settings_nonce')) {
+	        LS_Admin_Notice::error(__('Security check failed.', 'license-sender'));
+	        wp_redirect(wp_get_referer());
+	        exit;
+	    }
+
+	    $tab = sanitize_text_field($_POST['tab'] ?? '');
+
+
+	    switch ($tab) {
+	        case 'general':
+
+				$autocomplete_order = isset($_POST['lship_autocomplete_order']) ? 'yes' : 'no';
+				$send_email_after_redeem = isset($_POST['lship_send_email_after_redeem']) ? 'yes' : 'no';
+
+				$lship_enable_variation_support =
+					($_POST['lship_enable_variation_support'] ?? 'no') === 'yes' ? 'yes' : 'no';
+
+				$lship_enable_manage_downloads =
+					($_POST['lship_enable_manage_downloads'] ?? 'no') === 'yes' ? 'yes' : 'no';
+
+				$lship_enable_manage_activation_guides =
+					($_POST['lship_enable_manage_activation_guides'] ?? 'no') === 'yes' ? 'yes' : 'no';
+
+				/** SSO */
+				$lship_sso_enabled =
+					($_POST['lship_sso_enabled'] ?? 'no') === 'yes' ? 'yes' : 'no';
+
+				update_option('lship_autocomplete_order', $autocomplete_order);
+				update_option('lship_send_email_after_redeem', $send_email_after_redeem);
+				update_option('lship_enable_variation_support', $lship_enable_variation_support);
+				update_option('lship_enable_manage_downloads', $lship_enable_manage_downloads);
+				update_option('lship_enable_manage_activation_guides', $lship_enable_manage_activation_guides);
+				update_option('lship_sso_enabled', $lship_sso_enabled);
+
+				if (!empty($_POST['lship_sso_token'])) {
+					update_option('lship_sso_token', sanitize_text_field($_POST['lship_sso_token']));
+				}
+
+				if (!empty($_POST['lship_sso_user_email'])) {
+					update_option('lship_sso_user_email', sanitize_email($_POST['lship_sso_user_email']));
+				}
+
+				break;
+
+
+	        case 'api':
+	            $api_key = sanitize_text_field($_POST['lship_api_key']);
+	            $api_base_url = sanitize_text_field($_POST['lship_api_base_url']);
+	            update_option('lship_api_key', $api_key);
+	            update_option('lship_api_base_url', $api_base_url);
+	            break;
+
+	        case 'email':
+
+			    // Save sender name
+			    if (isset($_POST['lship_email_sender_name'])) {
+			        update_option('lship_email_sender_name', sanitize_text_field($_POST['lship_email_sender_name']));
+			    }
+
+			    // Save sender email
+			    if (isset($_POST['lship_email_sender_email']) && is_email($_POST['lship_email_sender_email'])) {
+			        update_option('lship_email_sender_email', sanitize_email($_POST['lship_email_sender_email']));
+			    } else {
+			        delete_option('lship_email_sender_email'); // fallback to site default
+			    }
+
+			    // Save email subject
+			    if (isset($_POST['lship_email_subject'])) {
+			        update_option('lship_email_subject', sanitize_text_field($_POST['lship_email_subject']));
+			    }
+
+			    // Save email send mode
+			    if (isset($_POST['lship_email_send_mode'])) {
+			        update_option('lship_email_send_mode', sanitize_text_field($_POST['lship_email_send_mode']));
+			    }
+
+			    break;
+
+			case 'design':
+		    // Map of expected color options (all HEX colors)
+		    $design_keys = [
+		        'ls_brand',        // Brand gradient start
+		        'ls_brand_2',      // Brand gradient end
+		        'ls_ring',         // Focus ring base color (alpha added when outputting CSS)
+		        'ls_success',      // (optional) View Key gradient start
+		        'ls_success_2',    // (optional) View Key gradient end
+		        'ls_code_bg',      // Code block background
+		        'ls_code_fg',      // Code block text
+		        'ls_code_border',  // Code block border
+		        'ls_code_accent',  // Code block accent/selection
+		    ];
+
+		    foreach ($design_keys as $key) {
+		        // Read posted value (may be empty)
+		        $raw = isset($_POST[$key]) ? wp_unslash($_POST[$key]) : '';
+		        // Sanitize as hex color (#RRGGBB or #RGB); returns null if invalid
+		        $hex = sanitize_hex_color($raw);
+		        // Store sanitized color or empty string (so your CSS can fallback)
+		        update_option($key, $hex ? $hex : '');
+		    }
+		    break;
+
+
+		    case 'popup':
+		    // existing color saves... then:
+		    $ui_keys = [
+		      'ls_sw_confirm_title',
+		      'ls_sw_confirm_text',
+		    ];
+		    foreach ($ui_keys as $key) {
+		      $val = isset($_POST[$key]) ? sanitize_text_field( wp_unslash($_POST[$key]) ) : '';
+		      update_option($key, $val);
+		    }
+		    break;
+
+
+	        default:
+	            LS_Admin_Notice::error(__('Invalid settings tab.', 'license-sender'));
+	            wp_redirect(wp_get_referer());
+	            exit;
+	    }
+
+	    LS_Admin_Notice::success(__('Settings saved successfully.', 'license-sender'));
+	    wp_redirect(wp_get_referer());
+	    exit;
+
+	}
+
+
+	public static function ls_ping_api(){
+
+		check_ajax_referer('ls_ping_api_nonce');
+
+	    if (!current_user_can('manage_options')) {
+	        wp_send_json_error([
+	            'message' => __('Unauthorized access.', 'license-sender')
+	        ], 403);
+	    }
+
+	    $result = License_Shipper_Api::ping();
+
+	    wp_send_json_success($result);
+
+	    if ($result['success']) {
+	        wp_send_json_success($result);
+	    } else {
+	        wp_send_json_error([
+	            'message' => $result['message'] ?? __('Unknown error occurred.', 'license-sender')
+	        ]);
+	    }
+	}
+
+	public static function ls_send_test_email_callback() {
+		// CSRF / auth
+		check_ajax_referer('ls_test_email_nonce');
+		if ( ! current_user_can('manage_woocommerce') && ! current_user_can('manage_options') ) {
+			wp_send_json_error(['message' => __('Unauthorized.', 'license-sender')], 403);
+		}
+
+		// Input
+		$email = isset($_POST['email']) ? sanitize_email($_POST['email']) : '';
+		if (!is_email($email)) {
+			wp_send_json_error(['message' => __('Invalid email address.', 'license-sender')], 400);
+		}
+
+		// Branding / settings
+		$site_name     = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
+		$subject       = get_option('lship_email_subject', sprintf(__('Test: Your License Keys from %s', 'license-sender'), $site_name));
+		$brand_color   = get_option('lship_brand_color', '#4F46E5'); // indigo-600
+		$accent_color  = get_option('lship_accent_color', '#0EA5E9'); // sky-500
+		$text_color    = '#111827';
+		$muted_color   = '#6B7280';
+		$bg_color      = '#F3F4F6';
+		$card_bg       = '#FFFFFF';
+		$border_color  = '#E5E7EB';
+		$logo_url      = esc_url(get_option('lship_email_logo', get_site_icon_url()));
+		$support_email = is_email(get_option('lship_support_email')) ? get_option('lship_support_email') : get_option('admin_email');
+
+		// Mock order context
+		$customer_name = 'John Doe';
+		$order_number  = 'TEST-12345';
+		$order_date    = date_i18n(get_option('date_format', 'M j, Y'), current_time('timestamp'));
+
+		// Build mock rows (2 items)
+		$rows_html = '';
+		$rows      = [
+			[
+				'product'        => 'Microsoft Office 2021 Professional Plus',
+				'key'            => 'XXXXX-XXXXX-XXXXX-XXXXX-XXXXX',
+				'download_link'  => 'https://example.com/downloads/office2021',
+				'guide_url'      => 'https://example.com/guides/office2021-activation',
+			],
+			[
+				'product'        => 'Windows 11 Pro Retail',
+				'key'            => 'AAAAA-BBBBB-CCCCC-DDDDD-EEEEE',
+				'download_link'  => 'https://example.com/downloads/windows11pro',
+				'guide_url'      => 'https://example.com/guides/windows11-activation',
+			],
+		];
+
+		$i = 0;
+		foreach ($rows as $r) {
+			$i++;
+			$zebra = ($i % 2 === 0) ? 'background-color:#F9FAFB;' : '';
+			$rows_html .= '
+			<tr style="'.$zebra.'">
+				<td style="padding:12px 14px; font:14px/20px Arial, sans-serif; color:'.$text_color.';">'.esc_html($r['product']).'</td>
+				<td style="padding:12px 14px; font:14px/20px Arial, sans-serif; color:'.$text_color.';">
+					<span style="display:inline-block; padding:6px 10px; background:#F3F4F6; border:1px solid '.$border_color.'; border-radius:6px; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;">'.esc_html($r['key']).'</span>
+				</td>
+				<td style="padding:12px 14px; text-align:center;">
+					<a href="'.esc_url($r['download_link']).'" target="_blank" style="display:inline-block; padding:10px 14px; text-decoration:none; border-radius:8px; border:1px solid '.$border_color.'; font:14px/20px Arial, sans-serif; color:'.$text_color.';">Download</a>
+				</td>
+				<td style="padding:12px 14px; text-align:center;">
+					<a href="'.esc_url($r['guide_url']).'" target="_blank" style="display:inline-block; padding:10px 14px; text-decoration:none; border-radius:8px; background:'.$accent_color.'; color:#fff; font:14px/20px Arial, sans-serif;">Guide</a>
+				</td>
+			</tr>';
+		}
+
+		// Try to render with your full HTML email template (same as production)
+		$template_path = plugin_dir_path(__FILE__) . '../public/templates/email/license-email-template.php';
+		if (file_exists($template_path)) {
+			// Expose variables to template scope
+			$rows_html     = $rows_html;
+			$subject       = $subject;
+			$site_name     = $site_name;
+			$brand_color   = $brand_color;
+			$accent_color  = $accent_color;
+			$text_color    = $text_color;
+			$muted_color   = $muted_color;
+			$bg_color      = $bg_color;
+			$card_bg       = $card_bg;
+			$border_color  = $border_color;
+			$logo_url      = $logo_url;
+			$support_email = $support_email;
+			$customer_name = $customer_name;
+			$order_number  = $order_number;
+			$order_date    = $order_date;
+
+			ob_start();
+			include $template_path;
+			$final_body = ob_get_clean();
+		} else {
+			// Fallback: use existing simple template wrapped in the WooCommerce email shell
+			$template = get_option('lship_email_template', 'This is a test email for License Sender plugin.');
+			$default_email_data = [
+				'{customer_name}' => $customer_name,
+				'{order_id}'      => $order_number,
+				'{product}'       => $rows[0]['product'],
+				'{key}'           => $rows[0]['key'],
+				'{download_link}' => $rows[0]['download_link'],
+				'{instruction}'   => $rows[0]['guide_url'],
+				'{vendor_name}'   => 'LicenseShipper',
+				'{vendor_url}'    => 'https://licenseshipper.com',
+			];
+			if (function_exists('ls_customizeEmailTemplate')) {
+				$body = ls_customizeEmailTemplate($template, $default_email_data);
+			} else {
+				// simple placeholder replacement if helper not present
+				$body = strtr($template, $default_email_data);
+			}
+
+			ob_start();
+			do_action('woocommerce_email_header', $subject);
+			echo wp_kses_post($body);
+			do_action('woocommerce_email_footer');
+			$final_body = ob_get_clean();
+		}
+
+		// Headers (safe From)
+		$from_name_raw  = get_option('lship_email_sender_name');
+		$from_email_raw = get_option('lship_email_sender_email');
+		$from_name      = $from_name_raw ? sanitize_text_field($from_name_raw) : $site_name;
+		$from_email     = is_email($from_email_raw) ? $from_email_raw : get_option('admin_email');
+
+		$headers = [
+			'Content-Type: text/html; charset=UTF-8',
+			sprintf('From: %s <%s>', $from_name, $from_email),
+		];
+
+		// Send
+		$sent = wp_mail($email, $subject, $final_body, $headers);
+
+		if ($sent) {
+			wp_send_json_success(['message' => __('Test email sent successfully.', 'license-sender')]);
+		} else {
+			wp_send_json_error(['message' => __('Failed to send test email.', 'license-sender')], 500);
+		}
+	}
+
+	public static function ls_get_download_links(){
+
+		global $wpdb;
+	    $table = $wpdb->prefix . 'ls_download_links';
+
+	    // Fetch all rows
+	    $results = $wpdb->get_results("SELECT * FROM {$table} ORDER BY id DESC", ARRAY_A);
+
+	    $data = [];
+
+	    foreach ($results as $row) {
+
+	        // Get product name safely
+	        $product_name = get_the_title($row['product_id']);
+	        if (empty($product_name)) {
+	            $product_name = __('(Product not found)', 'license-shipper');
+	        }
+
+	        $data[] = [
+			    'id'           => (int) $row['id'],
+			    'product_id'   => (int) $row['product_id'],
+			    'product_name' => esc_html($product_name),
+			    'link'         => esc_url($row['link']),
+			    'actions'      => '
+			        <a href="#" class="button button-small ls-edit-link" data-id="' . esc_attr($row['id']) . '" title="Edit">
+			            <span class="dashicons dashicons-edit"></span>
+			        </a>
+			        <a href="#" class="button button-small ls-delete-link" data-id="' . esc_attr($row['id']) . '" title="Delete" 
+			           style="margin-left:5px;background:#e3342f;border-color:#e3342f;color:#fff;">
+			            <span class="dashicons dashicons-trash"></span>
+			        </a>
+			    '
+			];
+
+	    }
+
+	    // Always return JSON with "data" key
+	    wp_send_json([
+	        'data' => $data
+	    ]);
+	}
+
+	public static function ls_get_single_download_link() {
+	    global $wpdb;
+
+	    $table = $wpdb->prefix . 'ls_download_links';
+	    $id = isset($_POST['id']) ? absint($_POST['id']) : 0;
+
+	    if (!$id) {
+	        wp_send_json_error(__('Invalid ID provided.', 'license-shipper'));
+	    }
+
+	    // Fetch record
+	    $record = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $id), ARRAY_A);
+
+	    if (!$record) {
+	        wp_send_json_error(__('Record not found.', 'license-shipper'));
+	    }
+
+	    // Get product details
+	    $product_id   = (int) $record['product_id'];
+	    $product_name = get_the_title($product_id);
+
+	    if (empty($product_name)) {
+	        $product_name = __('(Product not found)', 'license-shipper');
+	    }
+
+	    // Build response
+	    $response = [
+	        'id'            => (int) $record['id'],
+	        'product_id'    => $product_id,
+	        'product_name'  => esc_html($product_name),
+	        'link'          => esc_url($record['link']),
+	        'created_at'    => isset($record['created_at']) ? esc_html($record['created_at']) : '',
+	    ];
+
+	    wp_send_json_success($response);
+	}
+
+
+	public static function ls_save_download_link() {
+	    global $wpdb;
+
+	    $table = $wpdb->prefix . 'ls_download_links';
+
+	    $id         = isset($_POST['id']) ? absint($_POST['id']) : 0;
+	    $product_id = absint($_POST['product_id']);
+	    $link       = esc_url_raw($_POST['link']);
+
+	    if (!$product_id || empty($link)) {
+	        wp_send_json_error(__('Please fill all fields.', 'license-shipper'));
+	    }
+
+	    //  Check for existing entry with same product_id (ignore current ID when updating)
+	    $duplicate = $wpdb->get_var(
+	        $wpdb->prepare(
+	            "SELECT COUNT(*) FROM {$table} WHERE product_id = %d AND id != %d",
+	            $product_id,
+	            $id
+	        )
+	    );
+
+	    if ($duplicate > 0) {
+	        wp_send_json_error(__('A download link already exists for this product.', 'license-shipper'));
+	    }
+
+	    // Insert or update
+	    if ($id > 0) {
+	        $updated = $wpdb->update(
+	            $table,
+	            [
+	                'product_id' => $product_id,
+	                'link'       => $link
+	            ],
+	            [ 'id' => $id ],
+	            [ '%d', '%s' ],
+	            [ '%d' ]
+	        );
+
+	        if ($updated !== false) {
+	            wp_send_json_success(__('Updated successfully.', 'license-shipper'));
+	        } else {
+	            wp_send_json_error(__('Failed to update record.', 'license-shipper'));
+	        }
+
+	    } else {
+	        $inserted = $wpdb->insert(
+	            $table,
+	            [
+	                'product_id' => $product_id,
+	                'link'       => $link,
+	                'created_at' => current_time('mysql')
+	            ],
+	            [ '%d', '%s', '%s' ]
+	        );
+
+	        if ($inserted) {
+	            wp_send_json_success(__('Added successfully.', 'license-shipper'));
+	        } else {
+	            wp_send_json_error(__('Failed to add record.', 'license-shipper'));
+	        }
+	    }
+	}
+
+
+	public static function ls_delete_download_link(){
+
+		global $wpdb;
+	    $table = $wpdb->prefix . 'ls_download_links';
+	    $id = isset($_POST['id']) ? absint($_POST['id']) : 0;
+
+	    if (!$id) {
+	        wp_send_json_error(__('Invalid ID.', 'license-shipper'));
+	    }
+
+	    $deleted = $wpdb->delete($table, ['id' => $id], ['%d']);
+
+	    if ($deleted !== false) {
+	        wp_send_json_success(__('Deleted successfully.', 'license-shipper'));
+	    } else {
+	        wp_send_json_error(__('Failed to delete record.', 'license-shipper'));
+	    }
+	}
+
+	/**
+	 * Get all activation guides for DataTable
+	 */
+	public static function ls_get_activation_guides() {
+	    global $wpdb;
+
+	    $table = $wpdb->prefix . 'ls_activation_guides';
+	    $data  = [];
+
+	    $results = $wpdb->get_results("SELECT * FROM {$table} ORDER BY id DESC", ARRAY_A);
+
+	    if ($results) {
+	        foreach ($results as $row) {
+	            $product_name = __('(Product Deleted)', 'license-shipper');
+	            if (!empty($row['product_id'])) {
+	                $product = wc_get_product($row['product_id']);
+	                if ($product) {
+	                    $product_name = $product->get_name();
+	                }
+	            }
+
+	            $type_label = ucfirst($row['type'] ?? 'Text');
+
+	            $actions = sprintf(
+				    '<a href="%1$s" class="button button-small ls-edit-link" title="%3$s">
+				        <span class="dashicons dashicons-edit"></span>
+				    </a>
+				    <a href="#" class="button button-small ls-delete-guide" data-id="%2$d" title="%4$s" 
+				       style="margin-left:6px;background:#e3342f;border-color:#e3342f;color:#fff;">
+				        <span class="dashicons dashicons-trash"></span>
+				    </a>',
+				    esc_url(admin_url('admin.php?page=ls-activation-guides&action=edit&id=' . intval($row['id']))),
+				    intval($row['id']),
+				    esc_attr__('Edit', 'license-shipper'),
+				    esc_attr__('Delete', 'license-shipper')
+				);
+
+
+	            $data[] = [
+	                'id'          => intval($row['id']),
+	                'product_name'=> esc_html($product_name),
+	                'type'        => esc_html($type_label),
+	                'created_at'  => esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), strtotime($row['created_at']))),
+	                'actions'     => $actions,
+	            ];
+	        }
+	    }
+
+	    //  Send clean JSON for DataTables
+	    wp_send_json(['data' => $data]);
+	}
+
+
+
+	public static function ls_save_activation_guide() {
+	    global $wpdb;
+
+	    $table = $wpdb->prefix . 'ls_activation_guides';
+
+	    if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'ls_activation_guide_nonce')) {
+	        wp_send_json_error(__('Security verification failed.', 'license-shipper'));
+	    }
+
+	    $id         = isset($_POST['id']) ? absint($_POST['id']) : 0;
+	    $product_id = absint($_POST['product_id']);
+	    $type       = sanitize_text_field($_POST['type']);
+	    $content    = '';
+	    $pdf_url    = '';
+
+	    if (!$product_id || empty($type)) {
+	        wp_send_json_error(__('Please fill in all required fields.', 'license-shipper'));
+	    }
+
+	    // Ensure uploads directory exists
+	    $upload_dir = wp_upload_dir();
+	    $pdf_dir    = trailingslashit($upload_dir['basedir']) . 'activation-guides/';
+	    $pdf_url_base = trailingslashit($upload_dir['baseurl']) . 'activation-guides/';
+	    if (!file_exists($pdf_dir)) {
+	        wp_mkdir_p($pdf_dir);
+	    }
+
+	    $file_name = 'guide-' . $product_id . '-' . time() . '.pdf';
+	    $pdf_path  = $pdf_dir . $file_name;
+	    $pdf_link  = $pdf_url_base . $file_name;
+
+	    //  If plain text → convert to PDF using Dompdf
+	    if ($type === 'text' || $type === 'plain_text') {
+	        $content = wp_kses_post($_POST['content']);
+
+	        try {
+	            $html = '
+	                <html>
+	                    <head>
+	                        <meta charset="utf-8">
+	                        <style>
+	                            body { font-family: DejaVu Sans, sans-serif; font-size: 13px; line-height: 1.6; color: #333; }
+	                            h1 { font-size: 20px; margin-bottom: 20px; color: #222; }
+	                            hr { border: none; border-top: 1px solid #ccc; margin: 10px 0; }
+	                            .footer { margin-top: 40px; font-size: 12px; color: #888; text-align: center; }
+	                        </style>
+	                    </head>
+	                    <body>
+	                        <h1>Activation Guide</h1>
+	                        <hr>
+	                        <div>' . $content . '</div>
+	                    </body>
+	                </html>
+	            ';
+
+	            $options = new \Dompdf\Options();
+	            $options->set('isRemoteEnabled', true); // allow https:// and data:image
+	            $options->set('defaultFont', 'DejaVu Sans');
+	            $options->set('isHtml5ParserEnabled', true);
+
+	            $dompdf = new \Dompdf\Dompdf($options);
+
+	            // Important: convert relative image URLs to absolute URLs
+	            $site_url = site_url('/');
+	            $html = str_replace('src="/', 'src="' . $site_url, $html);
+
+	            $dompdf->loadHtml($html);
+	            $dompdf->setPaper('A4', 'portrait');
+	            $dompdf->render();
+
+	            file_put_contents($pdf_path, $dompdf->output());
+	            $pdf_url = esc_url_raw($pdf_link);
+	        } catch (Exception $e) {
+	            error_log('Dompdf PDF generation failed: ' . $e->getMessage());
+	            wp_send_json_error(__('PDF generation failed. Please check Dompdf setup.', 'license-shipper'));
+	        }
+	    }
+
+	    //  If type = PDF (uploaded file)
+	    elseif ($type === 'pdf') {
+	        if (isset($_FILES['pdf_file']) && !empty($_FILES['pdf_file']['name'])) {
+	            require_once ABSPATH . 'wp-admin/includes/file.php';
+	            $upload = wp_handle_upload($_FILES['pdf_file'], ['test_form' => false]);
+	            if (isset($upload['error'])) {
+	                wp_send_json_error(__('File upload failed: ', 'license-shipper') . $upload['error']);
+	            }
+	            $pdf_url = esc_url_raw($upload['url']);
+	            $content = ''; // skip text
+	        } else {
+	            if ($id > 0) {
+	                $stored = $wpdb->get_var($wpdb->prepare("SELECT content FROM $table WHERE id = %d", $id));
+	                $stored_data = maybe_unserialize($stored);
+	                $pdf_url = $stored_data['pdf'] ?? '';
+	            } else {
+	                wp_send_json_error(__('Please upload a PDF file.', 'license-shipper'));
+	            }
+	        }
+	    }
+
+	    // Prevent duplicates
+	    $exists = $wpdb->get_var($wpdb->prepare(
+	        "SELECT COUNT(*) FROM $table WHERE product_id = %d AND id != %d",
+	        $product_id, $id
+	    ));
+
+	    if ($exists > 0) {
+	        wp_send_json_error(__('An activation guide already exists for this product.', 'license-shipper'));
+	    }
+
+	    // Save serialized content
+	    $serialized_content = maybe_serialize([
+	        'html' => $content,
+	        'pdf'  => $pdf_url,
+	    ]);
+
+	    // Insert / update
+	    if ($id > 0) {
+	        $wpdb->update(
+	            $table,
+	            [
+	                'product_id' => $product_id,
+	                'type'       => $type,
+	                'content'    => $serialized_content,
+	            ],
+	            ['id' => $id],
+	            ['%d', '%s', '%s'],
+	            ['%d']
+	        );
+	        wp_send_json_success(__('Activation guide updated successfully.', 'license-shipper'));
+	    } else {
+	        $wpdb->insert(
+	            $table,
+	            [
+	                'product_id' => $product_id,
+	                'type'       => $type,
+	                'content'    => $serialized_content,
+	                'created_at' => current_time('mysql'),
+	            ],
+	            ['%d', '%s', '%s', '%s']
+	        );
+	        wp_send_json_success(__('Activation guide added successfully.', 'license-shipper'));
+	    }
+	}
+
+
+
+
+
+	/**
+	 * Get single activation guide record (for edit form)
+	 */
+	public static function ls_get_single_activation_guide() {
+	    global $wpdb;
+
+	    $table = $wpdb->prefix . 'ls_activation_guides';
+	    $id = isset($_POST['id']) ? absint($_POST['id']) : 0;
+
+	    if (!$id) {
+	        wp_send_json_error(__('Invalid record ID.', 'license-shipper'));
+	    }
+
+	    $record = $wpdb->get_row(
+	        $wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $id),
+	        ARRAY_A
+	    );
+
+	    if (!$record) {
+	        wp_send_json_error(__('Activation guide not found.', 'license-shipper'));
+	    }
+
+	    // Unserialize content (newer structure)
+	    $content_data = maybe_unserialize($record['content']);
+	    $html_content = '';
+	    $pdf_link     = '';
+
+	    if (is_array($content_data)) {
+	        $html_content = $content_data['html'] ?? '';
+	        $pdf_link     = $content_data['pdf'] ?? '';
+	    } else {
+	        // Backward compatibility — old records only had raw content
+	        $html_content = $record['content'];
+	    }
+
+	    // Format response for AJAX
+	    $response = [
+	        'id'           => intval($record['id']),
+	        'product_id'   => intval($record['product_id']),
+	        'type'         => sanitize_text_field($record['type']),
+	        'html_content' => wp_kses_post($html_content),
+	        'pdf_link'     => esc_url_raw($pdf_link),
+	        'created_at'   => $record['created_at'],
+	        'updated_at'   => $record['updated_at'] ?? '',
+	    ];
+
+	    wp_send_json_success($response);
+	}
+
+
+	/**
+	 * Delete activation guide (AJAX)
+	 */
+	public static function ls_delete_activation_guide() {
+	    global $wpdb;
+
+	    // Security check
+	    if (!current_user_can('manage_options')) {
+	        wp_send_json_error(__('You are not allowed to perform this action.', 'license-shipper'));
+	    }
+
+	    // Validate ID
+	    $id = isset($_POST['id']) ? absint($_POST['id']) : 0;
+	    if ($id <= 0) {
+	        wp_send_json_error(__('Invalid ID.', 'license-shipper'));
+	    }
+
+	    $table = $wpdb->prefix . 'ls_activation_guides';
+
+	    // Check existence before deletion
+	    $exists = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$table} WHERE id = %d", $id));
+	    if (!$exists) {
+	        wp_send_json_error(__('Record not found.', 'license-shipper'));
+	    }
+
+	    // Delete the record
+	    $deleted = $wpdb->delete($table, ['id' => $id], ['%d']);
+
+	    if ($deleted) {
+	        wp_send_json_success(__('Activation guide deleted successfully.', 'license-shipper'));
+	    } else {
+	        wp_send_json_error(__('Failed to delete activation guide.', 'license-shipper'));
+	    }
+	}
+
+
+
+
+
+
+
+
+
+
+
+}
+
+Ls_License_Shipper_Admin_Action::init();

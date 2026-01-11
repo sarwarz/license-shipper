@@ -1,0 +1,609 @@
+<?php
+if ( ! defined('ABSPATH') ) exit;
+
+class LS_Admin_Licenses_Datatables {
+
+    private static $slug = 'ls-license-shipper';
+
+    // Call this early (plugins_loaded)
+    public static function boot() {
+
+        add_action('wp_ajax_ls_licenses_dt', [__CLASS__, 'ajax_dt']);
+        add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue']);
+
+        add_action('wp_ajax_ls_fetch_license_by_sku', [__CLASS__, 'ajax_fetch_license_by_sku']);
+    }
+
+    // Keep this to set the page slug used by enqueue() gating and render()
+    public static function init_for_menu($menu_slug) {
+        self::$slug = $menu_slug ?: self::$slug;
+    }
+
+    /** Enqueue DataTables + our CSS/JS only on our screen */
+    public static function enqueue( $hook ) {
+        
+        if ( empty($_GET['page']) || $_GET['page'] !== self::$slug ) return;
+
+
+        // --- 3rd-party DataTables CSS (local) ---
+        $base_url = plugin_dir_url(__FILE__);
+        $css_path = $base_url . 'css/datatables/';
+        $js_path  = $base_url . 'js/datatables/';
+
+        wp_register_style('dt-core',       $css_path . 'dataTables.min.css', [], '1.13.8');
+        wp_register_style('dt-buttons',    $css_path . 'buttons.dataTables.min.css', [], '2.4.2');
+        wp_register_style('dt-responsive', $css_path . 'responsive.dataTables.min.css', [], '2.5.0');
+
+        wp_enqueue_style('dt-core');
+        wp_enqueue_style('dt-buttons');
+        wp_enqueue_style('dt-responsive');
+
+        // --- 3rd-party DataTables JS (local) ---
+        wp_register_script('dt-core',        $js_path . 'dataTables.min.js', ['jquery'], '1.13.8', true);
+        wp_register_script('dt-buttons',     $js_path . 'dataTables.buttons.min.js', ['dt-core'], '2.4.2', true);
+        wp_register_script('dt-buttons-h5',  $js_path . 'buttons.html5.min.js', ['dt-buttons'], '2.4.2', true);
+        wp_register_script('dt-buttons-pr',  $js_path . 'buttons.print.min.js', ['dt-buttons'], '2.4.2', true);
+        wp_register_script('dt-responsive',  $js_path . 'dataTables.responsive.min.js', ['dt-core'], '2.5.0', true);
+
+        wp_enqueue_script('dt-core');
+        wp_enqueue_script('dt-buttons');
+        wp_enqueue_script('dt-buttons-h5');
+        wp_enqueue_script('dt-buttons-pr');
+        wp_enqueue_script('dt-responsive');
+
+
+        $base_dir = plugin_dir_path(__FILE__);
+        $base_url = plugin_dir_url(__FILE__);
+
+        // --- Our CSS/JS (separate files) ---
+        
+
+        $css_rel  = 'css/ls-licenses-dt.css';
+        $js_rel   = 'js/ls-licenses-dt.js';
+
+        wp_enqueue_style(
+            'ls-licenses-dt-css',
+            $base_url . $css_rel,
+            ['dt-core','dt-buttons','dt-responsive'],
+            file_exists($base_dir . $css_rel) ? filemtime($base_dir . $css_rel) : '1.0.0'
+        );
+
+        wp_enqueue_script(
+            'ls-licenses-dt-js',
+            $base_url . $js_rel,
+            ['dt-responsive','dt-buttons-h5','dt-buttons-pr'],
+            file_exists($base_dir . $js_rel) ? filemtime($base_dir . $js_rel) : '1.0.0',
+            true
+        );
+
+        // Data for JS
+        wp_localize_script('ls-licenses-dt-js', 'LSLicensesDT', [
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce'   => wp_create_nonce('ls_dt'),
+        ]);
+
+        
+    }
+
+    /** Admin page renderer */
+    public static function render() {
+        global $wpdb;
+        $t = $wpdb->prefix . 'ls_cached_licenses';
+        $total    = (int) $wpdb->get_var("SELECT COUNT(*) FROM $t");
+        $orders   = (int) $wpdb->get_var("SELECT COUNT(DISTINCT order_id) FROM $t");
+        $products = (int) $wpdb->get_var("SELECT COUNT(DISTINCT product_id) FROM $t");
+        $emails   = (int) $wpdb->get_var("SELECT COUNT(DISTINCT email) FROM $t WHERE email IS NOT NULL AND email <> ''");
+        ?>
+        <div class="wrap" id="ls-dt-wrap">
+            <h1 class="wp-heading-inline"><?php esc_html_e('License Keys', 'license-shipper'); ?></h1>
+            <hr class="wp-header-end">
+
+            <!-- Summary cards -->
+            <div class="ls-cards">
+                <div class="ls-card">
+                    <div class="ls-card__label"><?php esc_html_e('Total Keys','license-shipper');?></div>
+                    <div class="ls-card__value"><?php echo number_format_i18n($total);?></div>
+                </div>
+                <div class="ls-card">
+                    <div class="ls-card__label"><?php esc_html_e('Orders','license-shipper');?></div>
+                    <div class="ls-card__value"><?php echo number_format_i18n($orders);?></div>
+                </div>
+                <div class="ls-card">
+                    <div class="ls-card__label"><?php esc_html_e('Products','license-shipper');?></div>
+                    <div class="ls-card__value"><?php echo number_format_i18n($products);?></div>
+                </div>
+                <div class="ls-card">
+                    <div class="ls-card__label"><?php esc_html_e('Unique Emails','license-shipper');?></div>
+                    <div class="ls-card__value"><?php echo number_format_i18n($emails);?></div>
+                </div>
+            </div>
+
+            <!-- DataTable -->
+            <table id="ls-licenses" class="display stripe" style="width:100%">
+                <thead>
+                <tr>
+                    <th>id</th>
+                    <th><?php esc_html_e('License Key','license-shipper'); ?></th>
+                    <th><?php esc_html_e('Order ID','license-shipper'); ?></th>
+                    <th><?php esc_html_e('Product','license-shipper'); ?></th>
+                    <th><?php esc_html_e('SKU','license-shipper'); ?></th>
+                    <th><?php esc_html_e('Email','license-shipper'); ?></th>
+                    <th><?php esc_html_e('Sold Date','license-shipper'); ?></th>
+                    <th><?php esc_html_e('Action','license-shipper'); ?></th>
+                </tr>
+                </thead>
+            </table>
+        </div>
+        <?php
+    }
+
+    /** DataTables server-side handler */
+    public static function ajax_dt() {
+        // --- Nonce: accept multiple keys to avoid 400s ---
+        $nonce = '';
+        if ( isset($_POST['nonce']) )          $nonce = sanitize_text_field( wp_unslash($_POST['nonce']) );
+        elseif ( isset($_POST['security']) )   $nonce = sanitize_text_field( wp_unslash($_POST['security']) );
+        elseif ( isset($_POST['_ajax_nonce']) )$nonce = sanitize_text_field( wp_unslash($_POST['_ajax_nonce']) );
+
+        if ( ! wp_verify_nonce( $nonce, 'ls_dt' ) ) {
+            wp_send_json_error( [ 'message' => 'Bad or missing nonce' ], 403 );
+        }
+
+        if ( ! current_user_can('manage_woocommerce') && ! current_user_can('manage_options') ) {
+            wp_send_json_error( [ 'message' => 'Unauthorized' ], 403 );
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'ls_cached_licenses';
+
+        $cols = [
+            0 => 'id',
+            1 => 'key_value',
+            2 => 'order_id',
+            3 => 'product_id',
+            4 => 'sku',
+            5 => 'email',
+            6 => 'created_at',
+            6 => 'action',
+        ];
+
+        $draw   = isset($_POST['draw'])  ? (int) $_POST['draw']  : 0;
+        $start  = isset($_POST['start']) ? max(0, (int) $_POST['start']) : 0;
+        $length = isset($_POST['length'])? (int) $_POST['length'] : 25;
+        if ($length < 1 || $length > 500) $length = 25;
+
+        // Search
+        $search = isset($_POST['search']['value']) ? trim(wp_unslash($_POST['search']['value'])) : '';
+        $where  = 'WHERE 1=1';
+        $args   = [];
+
+        if ($search !== '') {
+            $like = '%' . $wpdb->esc_like($search) . '%';
+            $where .= " AND (key_value LIKE %s OR sku LIKE %s OR email LIKE %s OR CAST(order_id AS CHAR) LIKE %s OR CAST(product_id AS CHAR) LIKE %s)";
+            array_push($args, $like,$like,$like,$like,$like);
+        }
+
+        // Order
+        $orderSql = 'ORDER BY id DESC';
+        if (isset($_POST['order'][0]['column'], $_POST['order'][0]['dir'])) {
+            $idx = (int) $_POST['order'][0]['column'];
+            $dir = strtolower(sanitize_text_field($_POST['order'][0]['dir'])) === 'asc' ? 'ASC' : 'DESC';
+            if (isset($cols[$idx])) {
+                $orderSql = "ORDER BY {$cols[$idx]} $dir";
+            }
+        }
+
+        // Counts
+        $recordsTotal = (int) $wpdb->get_var("SELECT COUNT(*) FROM $table");
+        $recordsFiltered = $recordsTotal;
+        if ($search !== '') {
+            $sqlCount = "SELECT COUNT(*) FROM $table $where";
+            $recordsFiltered = (int) $wpdb->get_var($wpdb->prepare($sqlCount, $args));
+        }
+
+        // Data
+        $sql = "SELECT id, key_value, order_id, product_id, sku, email, created_at FROM $table $where $orderSql LIMIT %d OFFSET %d";
+        $params = $args;
+        $params[] = $length;
+        $params[] = $start;
+
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+
+        // Enrich with Woo links/names
+        $out = [];
+        foreach ($rows as $r) {
+            $order_id     = (int) $r['order_id'];
+            $product_id   = (int) $r['product_id'];
+            $product_name = '';
+            $product_link = '';
+
+            if ($product_id) {
+                $p = wc_get_product($product_id);
+                if ($p) {
+                    $product_name = $p->get_name();
+                    $product_link = get_edit_post_link($product_id);
+                }
+            }
+
+            $out[] = [
+                'id'           => (int) $r['id'],
+                'key_value'    => (string) $r['key_value'],
+                'order_id'     => $order_id,
+                'order_link'   => $order_id ? admin_url('post.php?post='.$order_id.'&action=edit') : '',
+                'product_id'   => $product_id,
+                'product_name' => $product_name,
+                'product_link' => $product_link,
+                'sku'          => (string) $r['sku'],
+                'email'        => (string) $r['email'],
+                'created_at'   => (string) $r['created_at'],
+                'action'       => (int) $r['id'],
+            ];
+        }
+
+        wp_send_json([
+            'draw'            => $draw,
+            'recordsTotal'    => $recordsTotal,
+            'recordsFiltered' => $recordsFiltered,
+            'data'            => $out,
+        ]);
+    }
+
+
+
+    public static function render_edit() {
+        if ( ! current_user_can('manage_woocommerce') && ! current_user_can('manage_options') ) {
+            wp_die( esc_html__('You do not have permission to access this page.', 'license-shipper'), 403 );
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'ls_cached_licenses';
+
+        $id = isset($_GET['id']) ? absint($_GET['id']) : 0;
+        if (!$id) {
+            echo '<div class="notice notice-error"><p>'.esc_html__('Invalid license ID.', 'license-shipper').'</p></div>';
+            return;
+        }
+
+        // Handle save first (so the UI shows updated data)
+        if ( ! empty($_POST['ls_edit_nonce']) && wp_verify_nonce($_POST['ls_edit_nonce'], 'ls_edit_license') ) {
+            $data = [
+                'key_value'       => isset($_POST['key_value']) ? sanitize_text_field(wp_unslash($_POST['key_value'])) : '',
+                'email'           => isset($_POST['email']) ? sanitize_email(wp_unslash($_POST['email'])) : '',
+                'sku'             => isset($_POST['sku']) ? sanitize_text_field(wp_unslash($_POST['sku'])) : '',
+                'download_link'   => isset($_POST['download_link']) ? esc_url_raw(wp_unslash($_POST['download_link'])) : '',
+                'activation_guide'=> isset($_POST['activation_guide']) ? wp_kses_post(wp_unslash($_POST['activation_guide'])) : '',
+                'source'          => isset($_POST['source']) ? sanitize_text_field(wp_unslash($_POST['source'])) : '',
+            ];
+
+            $wpdb->update(
+                $table,
+                $data,
+                [ 'id' => $id ],
+                [ '%s','%s','%s','%s','%s','%s' ],
+                [ '%d' ]
+            );
+
+            echo '<div class="notice notice-success is-dismissible"><p>'.esc_html__('License updated successfully.', 'license-shipper').'</p></div>';
+        }
+
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE id=%d", $id));
+        if (!$row) {
+            echo '<div class="notice notice-error"><p>'.esc_html__('License not found.', 'license-shipper').'</p></div>';
+            return;
+        }
+
+        // Helpful links
+        $order_link   = $row->order_id ? admin_url('post.php?post='.$row->order_id.'&action=edit') : '';
+        $product_link = $row->product_id ? get_edit_post_link($row->product_id) : '';
+
+        ?>
+        <div class="wrap ls-edit-wrap">
+
+          <!-- Header Card -->
+          <div class="ls-header-card">
+              <h1>Edit License</h1>
+              <p class="ls-subtitle"><?php esc_html_e('Update license details and customer info.','license-shipper'); ?></p>
+          </div>
+
+          <!-- Form Card -->
+          <form method="post" class="ls-card ls-form">
+              <?php wp_nonce_field('ls_edit_license','ls_edit_nonce'); ?>
+              <input type="hidden" name="id" value="<?php echo esc_attr($row->id); ?>">
+
+              <div class="ls-field">
+                  <label for="key_value">License Key</label>
+                  <div class="ls-input-with-btn">
+                      <input type="text" id="key_value" name="key_value" value="<?php echo esc_attr($row->key_value); ?>">
+                  </div>
+              </div>
+
+
+              <div class="ls-field">
+                  <label for="download_link">Download Link</label>
+                  <input type="url" id="download_link" name="download_link" value="<?php echo esc_url($row->download_link ?: ''); ?>">
+              </div>
+
+              <div class="ls-field">
+                  <label for="email">Customer Email</label>
+                  <input type="email" id="email" name="email" value="<?php echo esc_attr($row->email); ?>" readonly>
+              </div>
+
+              <div class="ls-field">
+                  <label for="sku">SKU</label>
+                  <input type="text" id="sku" name="sku" value="<?php echo esc_attr($row->sku); ?>" readonly>
+              </div>
+
+              <div class="ls-field">
+                  <label for="order_id">Order ID</label>
+                  <input type="text" id="order_id" value="<?php echo (int)$row->order_id; ?>" readonly>
+              </div>
+
+              <?php 
+                $product_name = '';
+                if ( !empty($row->product_id) ) {
+                    $product = wc_get_product($row->product_id);
+                    if ( $product ) {
+                        $product_name = $product->get_name();
+                    }
+                }
+
+               ?>
+              <div class="ls-field">
+                <label for="product_id">Product</label>
+                <input type="text" id="product_id" 
+                       value="<?php echo (int)$row->product_id . ( $product_name ? ' – ' . esc_html($product_name) : '' ); ?>" 
+                       readonly>
+              </div>
+
+              <div class="ls-field">
+                  <label for="created_at">Sold Date</label>
+                  <input type="text" id="created_at" value="<?php echo esc_html($row->created_at); ?>" readonly>
+              </div>
+
+              
+
+              <!-- Sticky Footer -->
+              <div class="ls-actionbar">
+                  <a href="<?php echo esc_url(admin_url('admin.php?page=ls-license-shipper')); ?>" class="button ls-back-btn">
+                      ← <?php esc_html_e('Back','license-shipper'); ?>
+                  </a>
+                  <button type="submit" class="button button-primary ls-save-btn">
+                        <?php esc_html_e('Save Changes','license-shipper'); ?>
+                  </button>
+              </div>
+          </form>
+        </div>
+
+
+        <?php
+    }
+
+    public static function render_change() {
+        if ( ! current_user_can('manage_woocommerce') && ! current_user_can('manage_options') ) {
+            wp_die( esc_html__('You do not have permission to access this page.', 'license-shipper'), 403 );
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'ls_cached_licenses';
+
+        $id = isset($_GET['id']) ? absint($_GET['id']) : 0;
+        if (!$id) {
+            echo '<div class="notice notice-error"><p>'.esc_html__('Invalid license ID.', 'license-shipper').'</p></div>';
+            return;
+        }
+
+        // Handle APPLY (update DB and optional email)
+        if ( ! empty($_POST['ls_change_nonce']) && wp_verify_nonce($_POST['ls_change_nonce'], 'ls_change_license') ) {
+            $new_key     = isset($_POST['new_key_value']) ? sanitize_text_field( wp_unslash($_POST['new_key_value']) ) : '';
+            $new_link    = isset($_POST['new_download_link']) ? esc_url_raw( wp_unslash($_POST['new_download_link']) ) : '';
+            $new_guide   = isset($_POST['new_activation_guide']) ? wp_kses_post( wp_unslash($_POST['new_activation_guide']) ) : '';
+            $notify_user = !empty($_POST['notify_user']) ? true : false;
+
+            // Load current row for email + sku context
+            $row = $wpdb->get_row( $wpdb->prepare("SELECT * FROM $table WHERE id=%d", $id) );
+            if ( ! $row ) {
+                echo '<div class="notice notice-error"><p>'.esc_html__('License not found.', 'license-shipper').'</p></div>';
+                return;
+            }
+
+            // Update DB
+            $wpdb->update(
+                $table,
+                [
+                    'key_value'        => $new_key ?: $row->key_value,
+                    'download_link'    => $new_link,
+                    'activation_guide' => $new_guide,
+                    'source'           => 'changed', // tag it (optional)
+                ],
+                [ 'id' => $id ],
+                [ '%s','%s','%s','%s' ],
+                [ '%d' ]
+            );
+
+            // Optional email notify
+            if ( $notify_user && !empty($row->email) && is_email($row->email) ) {
+                $to       = $row->email;
+                $subject  = sprintf( __('Your license for Order #%d has been updated','license-shipper'), (int) $row->order_id );
+                $headers  = ['Content-Type: text/html; charset=UTF-8'];
+                $body     = '<p>'.esc_html__('Hello,','license-shipper').'</p>'.
+                            '<p>'.esc_html__('We updated your license key. Here are the latest details:','license-shipper').'</p>'.
+                            '<p><strong>'.esc_html__('License key:','license-shipper').'</strong> '.esc_html($new_key ?: $row->key_value).'</p>'.
+                            ( $new_link ? '<p><strong>'.esc_html__('Download:','license-shipper').'</strong> <a href="'.esc_url($new_link).'">'.esc_html($new_link).'</a></p>' : '' ).
+                            ( $new_guide ? '<p><strong>'.esc_html__('Activation guide:','license-shipper').'</strong></p><div>'.$new_guide.'</div>' : '' ).
+                            '<p>'.esc_html__('Thank you!','license-shipper').'</p>';
+
+                if ( function_exists('wc_mail') ) {
+                    wc_mail($to, $subject, $body, $headers);
+                } else {
+                    wp_mail($to, $subject, $body, $headers);
+                }
+            }
+
+            echo '<div class="notice notice-success is-dismissible"><p>'.esc_html__('License changed successfully.', 'license-shipper').'</p></div>';
+        }
+
+        // Always reload current row for UI
+        $row = $wpdb->get_row( $wpdb->prepare("SELECT * FROM $table WHERE id=%d", $id) );
+        if ( ! $row ) {
+            echo '<div class="notice notice-error"><p>'.esc_html__('License not found.', 'license-shipper').'</p></div>';
+            return;
+        }
+
+        // Resolve product name
+        $product_name = '';
+        if ( !empty($row->product_id) ) {
+            $p = wc_get_product($row->product_id);
+            if ($p) $product_name = $p->get_name();
+        }
+
+        ?>
+        <div class="wrap ls-change-wrap">
+          <!-- Header -->
+          <div class="ls-header-card">
+            <h1><?php esc_html_e('Change License','license-shipper'); ?></h1>
+            <p class="ls-subtitle"><?php esc_html_e('Fetch a new license by SKU, preview, and apply.','license-shipper'); ?></p>
+          </div>
+
+          <!-- One form card, stacked rows -->
+          <form method="post" class="ls-card ls-form">
+            <?php wp_nonce_field('ls_change_license','ls_change_nonce'); ?>
+            <input type="hidden" name="id" value="<?php echo esc_attr($row->id); ?>">
+
+            <!-- Current (existing) license -->
+            <div class="ls-field">
+              <label><?php esc_html_e('Current License','license-shipper'); ?></label>
+              <input type="text" value="<?php echo esc_attr($row->key_value); ?>" readonly>
+            </div>
+
+            <div class="ls-field">
+              <label><?php esc_html_e('Customer Email','license-shipper'); ?></label>
+              <input type="text" value="<?php echo esc_attr($row->email ?: '—'); ?>" readonly>
+            </div>
+
+            <div class="ls-field">
+              <label><?php esc_html_e('Product','license-shipper'); ?></label>
+              <input type="text" value="<?php
+                echo (int)$row->product_id . ( $product_name ? ' – ' . esc_html($product_name) : '' );
+              ?>" readonly>
+            </div>
+
+            <div class="ls-field">
+              <label><?php esc_html_e('SKU','license-shipper'); ?></label>
+              <input type="text" id="ls-change-sku" value="<?php echo esc_attr($row->sku); ?>" readonly>
+            </div>
+
+            <hr class="ls-sep" />
+
+            <!-- New license fetch area -->
+            <div class="ls-field">
+              <label><?php esc_html_e('New License (fetched)','license-shipper'); ?></label>
+              <div class="ls-input-with-btn">
+                <input type="text" id="ls-new-key" name="new_key_value" value="" placeholder="<?php esc_attr_e('Click “Fetch New License”','license-shipper'); ?>">
+                <button type="button" class="button ls-fetch-btn" id="ls-fetch-btn">
+                  <span class="dashicons dashicons-update"></span> <?php esc_html_e('Fetch New License','license-shipper'); ?>
+                </button>
+              </div>
+              <p class="description"><?php esc_html_e('Fetches by SKU; you can still edit the value before applying.','license-shipper'); ?></p>
+            </div>
+
+            <div class="ls-field">
+              <label for="ls-new-link"><?php esc_html_e('New Download Link','license-shipper'); ?></label>
+              <input type="url" id="ls-new-link" name="new_download_link" value="">
+            </div>
+
+            <div class="ls-field">
+              <label for="ls-new-guide"><?php esc_html_e('New Activation Guide (HTML/text)','license-shipper'); ?></label>
+              <textarea id="ls-new-guide" name="new_activation_guide" rows="6"></textarea>
+            </div>
+
+            <div class="ls-field ls-inline">
+              <label>
+                <input type="checkbox" name="notify_user" value="1" <?php checked( !empty($row->email) ); ?>>
+                <?php esc_html_e('Email the customer about this change','license-shipper'); ?>
+              </label>
+            </div>
+
+            <!-- Footer -->
+            <div class="ls-actionbar">
+              <a href="<?php echo esc_url( admin_url('admin.php?page=ls-license-shipper') ); ?>" class="button ls-back-btn">← <?php esc_html_e('Back','license-shipper'); ?></a>
+              <button type="submit" class="button button-primary ls-save-btn"><?php esc_html_e('Apply Change','license-shipper'); ?></button>
+            </div>
+          </form>
+        </div>
+        <?php
+    }
+
+
+    public static function ajax_fetch_license_by_sku() {
+        if ( ! current_user_can('manage_woocommerce') && ! current_user_can('manage_options') ) {
+            wp_send_json_error(['message' => 'Unauthorized'], 403);
+        }
+
+        $nonce = isset($_POST['nonce']) ? sanitize_text_field(wp_unslash($_POST['nonce'])) : '';
+        if ( ! wp_verify_nonce($nonce, 'ls_change') ) {
+            wp_send_json_error(['message' => 'Bad nonce'], 403);
+        }
+
+        $sku = isset($_POST['sku']) ? sanitize_text_field(wp_unslash($_POST['sku'])) : '';
+        if ( $sku === '' ) {
+            wp_send_json_error(['message' => 'Missing SKU'], 400);
+        }
+
+        // Optional: allow client to pass sort (defaults to 'id,asc') and timeout.
+        $sort    = isset($_POST['sort']) ? sanitize_text_field(wp_unslash($_POST['sort'])) : 'id,asc';
+        $timeout = isset($_POST['timeout']) ? (int) $_POST['timeout'] : 30;
+
+        // Ask API for exactly ONE available license for this SKU
+        $api_res = License_Shipper_Api::fetch_one_available_license_by_sku($sku, [
+            'sort'    => $sort,    // e.g., 'created_at,asc' or 'id,asc'
+            'timeout' => $timeout,
+        ]);
+
+        if ( empty($api_res['success']) ) {
+            $code = ! empty($api_res['http_code']) ? (int) $api_res['http_code'] : 500;
+            wp_send_json_error([
+                'message' => ! empty($api_res['message']) ? (string) $api_res['message'] : 'Failed to fetch license.',
+                'meta'    => isset($api_res['meta']) ? $api_res['meta'] : [],
+            ], $code);
+        }
+
+        $license = isset($api_res['license']) && is_array($api_res['license']) ? $api_res['license'] : [];
+
+        // Map possible key fields from API: prefer full key_value, then key, then masked_key (fallback).
+        $key_value = '';
+        if ( isset($license['key_value']) ) {
+            $key_value = (string) $license['key_value'];
+        } elseif ( isset($license['key']) ) {
+            $key_value = (string) $license['key'];
+        } elseif ( isset($license['masked_key']) ) {
+            $key_value = (string) $license['masked_key']; // fallback if API only returns masked in this endpoint
+        }
+
+        if ( $key_value === '' ) {
+            wp_send_json_error(['message' => 'No license found for this SKU'], 404);
+        }
+
+        // Download link / activation guide may come from license or be absent.
+        $download_link    = isset($license['download_link'])    ? (string) $license['download_link']    : '';
+        $activation_guide = isset($license['activation_guide']) ? (string) $license['activation_guide'] : '';
+
+        wp_send_json_success([
+            'key_value'        => $key_value,
+            'download_link'    => $download_link,
+            'activation_guide' => $activation_guide,
+            'license'          => $license,                 // full raw license object (optional but handy)
+            'meta'             => $api_res['meta'] ?? [],   // pass-through meta
+        ]);
+    }
+
+
+
+
+
+
+
+
+
+
+
+}
