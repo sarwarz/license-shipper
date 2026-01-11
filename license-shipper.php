@@ -44,7 +44,9 @@ define( 'LICENSE_SHIPPER_VERSION', '1.0.1' );
  * Load Plugin Update Checker
  */
 require_once plugin_dir_path( __FILE__ ) . 'libs/plugin-update-checker/plugin-update-checker.php';
+require_once plugin_dir_path( __FILE__ ) . 'libs/dompdf/autoload.inc.php';
 use YahnisElsts\PluginUpdateChecker\v5\PucFactory;
+use Dompdf\Dompdf;
 
 /**
  * GitHub Plugin Update Checker
