@@ -41,11 +41,10 @@ define( 'LICENSE_SHIPPER_VERSION', '1.0.1' );
 
 
 /**
- * Load Composer autoloader
+ * Load Plugin Update Checker
  */
-if ( file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
-	require_once __DIR__ . '/vendor/autoload.php';
-}
+require_once plugin_dir_path( __FILE__ ) . 'libs/plugin-update-checker/plugin-update-checker.php';
+use YahnisElsts\PluginUpdateChecker\v5\PucFactory;
 
 /**
  * GitHub Plugin Update Checker

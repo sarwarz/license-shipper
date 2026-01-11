@@ -107,6 +107,8 @@ class License_Shipper {
 
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/ls-license-shipper-functions.php';
 
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'vendor/autoload.php';
+
 		/**
 		 * The class responsible for defining internationalization functionality
 		 * of the plugin.

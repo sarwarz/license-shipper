@@ -1,6 +1,5 @@
 {
     "require": {
-        "dompdf/dompdf": "^3.1",
-        "yahnis-elsts/plugin-update-checker": "^5.6"
+        "dompdf/dompdf": "^3.1"
     }
 }
