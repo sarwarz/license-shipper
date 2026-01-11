@@ -98,26 +98,25 @@
    * SSO SETTINGS TOGGLE
    * ================================ */
   function initSsoSettings() {
-	  const $toggle = $('#lship_sso_enabled');
-	  const $token  = $('#lship_sso_token');
-	  const $email  = $('#lship_sso_user_email');
+    const $toggle = $('#lship_sso_enabled');
+    const $token  = $('#lship_sso_token');
+    const $email  = $('#lship_sso_user_email');
 
-	  if (!$toggle.length) return;
+    if (!$toggle.length) return;
 
-	  function syncSsoState() {
-		const enabled = $toggle.is(':checked');
+    function syncSsoState() {
+      const enabled = $toggle.is(':checked');
 
-		// Proper disabling
-		$token.prop('disabled', !enabled);
-		$email.prop('disabled', !enabled);
+      $token.prop('readonly', !enabled);
+      $email.prop('readonly', !enabled);
 
-		$token.toggleClass('disabled', !enabled);
-		$email.toggleClass('disabled', !enabled);
-	  }
+      $token.toggleClass('readonly', !enabled);
+      $email.toggleClass('readonly', !enabled);
+    }
 
-	  syncSsoState();
-	  $toggle.on('change', syncSsoState);
-	}
+    syncSsoState();
+    $toggle.on('change', syncSsoState);
+  }
 
 	$(initSsoSettings);
 

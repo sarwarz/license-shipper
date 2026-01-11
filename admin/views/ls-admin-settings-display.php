@@ -26,6 +26,7 @@ class Ls_Admin_Settings_Display {
             'email'                   => __('E-Mail Settings', 'license-shipper'),
             'design'                  => __('Design', 'license-shipper'),
             'popup'                   => __('PopUp Settings', 'license-shipper'),
+            'advance'                 => __('Advance Settings', 'license-shipper'),
         ];
 
         ?>
@@ -66,6 +67,10 @@ class Ls_Admin_Settings_Display {
 
                     case 'popup':
                         include plugin_dir_path(dirname(__FILE__)) . '/partials/popup-settings.php';
+                        break;
+
+                    case 'advance':
+                        include plugin_dir_path(dirname(__FILE__)) . '/partials/advance-settings.php';
                         break;
 
 

@@ -56,24 +56,14 @@ class Ls_License_Shipper_Admin_Action{
 				$lship_enable_manage_activation_guides =
 					($_POST['lship_enable_manage_activation_guides'] ?? 'no') === 'yes' ? 'yes' : 'no';
 
-				/** SSO */
-				$lship_sso_enabled =
-					($_POST['lship_sso_enabled'] ?? 'no') === 'yes' ? 'yes' : 'no';
+				
 
 				update_option('lship_autocomplete_order', $autocomplete_order);
 				update_option('lship_send_email_after_redeem', $send_email_after_redeem);
 				update_option('lship_enable_variation_support', $lship_enable_variation_support);
 				update_option('lship_enable_manage_downloads', $lship_enable_manage_downloads);
 				update_option('lship_enable_manage_activation_guides', $lship_enable_manage_activation_guides);
-				update_option('lship_sso_enabled', $lship_sso_enabled);
-
-				if (!empty($_POST['lship_sso_token'])) {
-					update_option('lship_sso_token', sanitize_text_field($_POST['lship_sso_token']));
-				}
-
-				if (!empty($_POST['lship_sso_user_email'])) {
-					update_option('lship_sso_user_email', sanitize_email($_POST['lship_sso_user_email']));
-				}
+				
 
 				break;
 
@@ -137,16 +127,33 @@ class Ls_License_Shipper_Admin_Action{
 
 
 		    case 'popup':
-		    // existing color saves... then:
-		    $ui_keys = [
-		      'ls_sw_confirm_title',
-		      'ls_sw_confirm_text',
-		    ];
-		    foreach ($ui_keys as $key) {
-		      $val = isset($_POST[$key]) ? sanitize_text_field( wp_unslash($_POST[$key]) ) : '';
-		      update_option($key, $val);
-		    }
-		    break;
+			    // existing color saves... then:
+			    $ui_keys = [
+			      'ls_sw_confirm_title',
+			      'ls_sw_confirm_text',
+			    ];
+			    foreach ($ui_keys as $key) {
+			      $val = isset($_POST[$key]) ? sanitize_text_field( wp_unslash($_POST[$key]) ) : '';
+			      update_option($key, $val);
+			    }
+			    break;
+
+			case 'advance':
+			   
+			   /** SSO */
+				$lship_sso_enabled = ($_POST['lship_sso_enabled'] ?? 'no') === 'yes' ? 'yes' : 'no';
+
+				update_option('lship_sso_enabled', $lship_sso_enabled);
+
+				if (!empty($_POST['lship_sso_token'])) {
+					update_option('lship_sso_token', sanitize_text_field($_POST['lship_sso_token']));
+				}
+
+				if (!empty($_POST['lship_sso_user_email'])) {
+					update_option('lship_sso_user_email', sanitize_email($_POST['lship_sso_user_email']));
+				}
+
+			    break;
 
 
 	        default:
