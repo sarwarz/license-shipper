@@ -55,6 +55,21 @@
                     <p class="description"><?php _e('Subject line used when sending license keys to customers after voucher redemption.', 'license-shipper'); ?></p>
                 </td>
             </tr>
+
+            <tr>
+                <th><label for="lship_support_email"><?php _e('Support Email Address', 'license-shipper'); ?></label></th>
+                <td>
+                    <input type="email" name="lship_support_email" id="lship_support_email" class="regular-text" value="<?php echo esc_attr(get_option('lship_support_email')); ?>">
+                    <p class="description">
+                        <?php _e(
+                            'This email address will be used for customer support inquiries. Customers may see or use this address when responding to license-related emails or requesting help.',
+                            'license-shipper'
+                        ); ?>
+                    </p>
+
+                </td>
+            </tr>
+
             <tr>
                 <th><label for="ls_test_email"><?php _e('Send test e-mail to', 'license-shipper'); ?></label></th>
                 <td>

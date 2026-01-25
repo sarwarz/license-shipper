@@ -94,6 +94,10 @@ class Ls_License_Shipper_Admin_Action{
 			        update_option('lship_email_subject', sanitize_text_field($_POST['lship_email_subject']));
 			    }
 
+			    if (isset($_POST['lship_support_email'])) {
+			        update_option('lship_support_email', sanitize_text_field($_POST['lship_support_email']));
+			    }
+
 			    // Save email send mode
 			    if (isset($_POST['lship_email_send_mode'])) {
 			        update_option('lship_email_send_mode', sanitize_text_field($_POST['lship_email_send_mode']));
