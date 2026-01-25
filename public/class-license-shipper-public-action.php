@@ -364,16 +364,14 @@ class Ls_License_Shipper_Public_Action{
 
 
 
-
     public static function ls_download_activation_guide() {
         if ( ! isset($_GET['key_id']) || ! is_numeric($_GET['key_id']) ) {
             wp_die(__('Invalid request.', 'license-shipper'));
         }
 
-        $key_id = absint($_GET['key_id']);
-
         global $wpdb;
         $table = $wpdb->prefix . 'ls_cached_licenses';
+        $key_id = absint($_GET['key_id']);
 
         $license = $wpdb->get_row(
             $wpdb->prepare("SELECT * FROM $table WHERE id = %d", $key_id)
@@ -385,33 +383,36 @@ class Ls_License_Shipper_Public_Action{
 
         $url = esc_url_raw(trim($license->activation_guide));
 
-        // Validate that it's a proper URL
         if ( ! filter_var($url, FILTER_VALIDATE_URL) ) {
             wp_die(__('Invalid activation guide URL.', 'license-shipper'));
         }
 
-        // Try to open a stream
-        $fileStream = @fopen($url, 'rb');
-        if ( ! $fileStream ) {
+        // Fetch remote file using WP HTTP API
+        $response = wp_remote_get($url, [
+            'timeout' => 30,
+            'sslverify' => false, // important for bad host SSL setups
+        ]);
+
+        if ( is_wp_error($response) ) {
             wp_die(__('Could not access activation guide file.', 'license-shipper'));
         }
 
-        // Get file name from URL
-        $filename = basename(parse_url($url, PHP_URL_PATH));
+        $body = wp_remote_retrieve_body($response);
+        if ( empty($body) ) {
+            wp_die(__('Activation guide is empty.', 'license-shipper'));
+        }
 
-        // Set headers for download
-        header('Content-Description: File Transfer');
+        $filename = basename(parse_url($url, PHP_URL_PATH)) ?: 'activation-guide.pdf';
+
         header('Content-Type: application/octet-stream');
         header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Cache-Control: must-revalidate');
-        header('Pragma: public');
-        header('Expires: 0');
+        header('Content-Length: ' . strlen($body));
+        header('Cache-Control: no-cache');
 
-        // Stream the file content to the user
-        fpassthru($fileStream);
-        fclose($fileStream);
+        echo $body;
         exit;
     }
+
 
 
 
