@@ -51,7 +51,12 @@ class License_Shipper_Order_Handler {
             return;
         }
 
-        // Only auto-complete allowed statuses
+        // Check if order has License Shipper product map
+        if ( ! self::order_has_license_shipper_product( $order ) ) {
+            return;
+        }
+
+        // Only allowed statuses
         $allowed_statuses = apply_filters(
             'license_shipper_autocomplete_statuses',
             array( 'processing' )
@@ -61,7 +66,7 @@ class License_Shipper_Order_Handler {
             return;
         }
 
-        // COMPLETE ORDER (override other plugins)
+        // ✅ COMPLETE ORDER
         $order->update_status(
             'completed',
             __( 'Order auto-completed by License Shipper.', 'license-shipper' )
@@ -70,6 +75,7 @@ class License_Shipper_Order_Handler {
         $order->update_meta_data( '_ls_completed_license_shipper', 'yes' );
         $order->save();
     }
+
 
     /**
      * Render license table on order page
@@ -145,6 +151,37 @@ class License_Shipper_Order_Handler {
             'yes'
         );
     }
+
+    /**
+     * Check if order contains any License Shipper enabled product
+     */
+    private static function order_has_license_shipper_product( WC_Order $order ): bool {
+
+        foreach ( $order->get_items() as $item ) {
+
+            $product = $item->get_product();
+            if ( ! $product ) {
+                continue;
+            }
+
+            // Variation first
+            if ( $product->is_type( 'variation' ) ) {
+                $enabled = get_post_meta( $product->get_id(), '_ls_enabled', true );
+                $mapped  = get_post_meta( $product->get_id(), '_ls_mapped_product', true );
+            } else {
+                // Simple product
+                $enabled = get_post_meta( $product->get_id(), '_ls_enabled', true );
+                $mapped  = get_post_meta( $product->get_id(), '_ls_mapped_product', true );
+            }
+
+            if ( $enabled === 'yes' && ! empty( $mapped ) ) {
+                return true; //  One is enough
+            }
+        }
+
+        return false;
+    }
+
 }
 
 License_Shipper_Order_Handler::init();
